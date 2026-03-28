@@ -102,17 +102,17 @@ Generate the sales intelligence report.`;
     // Step 3: Save report
     saveReport(db, leadId, reportData, enrichment.sources, reportId);
 
-    // Step 4: Update lead score
+    // Step 4: Update lead score + log activity atomically
     const updatedLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
     const newScore = calculateLeadScore(updatedLead);
-    db.prepare("UPDATE leads SET lead_score=?, lead_status=CASE WHEN lead_status='new' THEN 'researched' ELSE lead_status END, updated_at=? WHERE id=?").run(
-      newScore, new Date().toISOString(), leadId
-    );
-
-    // Step 5: Log activity
-    db.prepare("INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, 'system', 'research_completed', ?)").run(
-      leadId, `Research report generated (Readiness Score: ${reportData.readiness_score}/100)`
-    );
+    db.transaction(() => {
+      db.prepare("UPDATE leads SET lead_score=?, lead_status=CASE WHEN lead_status='new' THEN 'researched' ELSE lead_status END, updated_at=? WHERE id=?").run(
+        newScore, new Date().toISOString(), leadId
+      );
+      db.prepare("INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, 'system', 'research_completed', ?)").run(
+        leadId, `Research report generated (Readiness Score: ${reportData.readiness_score}/100)`
+      );
+    })();
 
     return reportData;
   } catch (err) {
@@ -216,23 +216,28 @@ async function runQueue(leadIds) {
   queueState.errors = [];
 
   (async () => {
-    for (const id of leadIds) {
-      queueState.current = id;
-      try {
-        await runResearch(id);
-        queueState.completed++;
-      } catch (err) {
-        queueState.errors.push({ id, error: err.message });
-        queueState.completed++;
+    try {
+      for (const id of leadIds) {
+        queueState.current = id;
+        try {
+          await runResearch(id);
+          queueState.completed++;
+        } catch (err) {
+          queueState.errors.push({ id, error: err.message });
+          queueState.completed++;
+        }
+        // 2 second delay between requests
+        if (queueState.queue.indexOf(id) < queueState.queue.length - 1) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
       }
-      // 2 second delay between requests
-      if (queueState.queue.indexOf(id) < queueState.queue.length - 1) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
+    } finally {
+      queueState.running = false;
+      queueState.current = null;
     }
-    queueState.running = false;
-    queueState.current = null;
-  })();
+  })().catch(err => {
+    console.error('[research] queue fatal error:', err.message);
+  });
 
   return { started: true, total: leadIds.length };
 }

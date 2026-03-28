@@ -67,10 +67,21 @@ router.get('/', (req, res) => {
 
   const leads = db.prepare(`
     SELECT l.*,
-      (SELECT rr.status FROM research_reports rr WHERE rr.lead_id = l.id AND rr.deleted_at IS NULL ORDER BY rr.created_at DESC LIMIT 1) as research_status,
-      (SELECT rr.readiness_score FROM research_reports rr WHERE rr.lead_id = l.id AND rr.deleted_at IS NULL ORDER BY rr.created_at DESC LIMIT 1) as readiness_score,
-      (SELECT MAX(a.created_at) FROM activities a WHERE a.lead_id = l.id) as last_activity_at
+      rr.status AS research_status,
+      rr.readiness_score,
+      act.last_activity_at
     FROM leads l
+    LEFT JOIN (
+      SELECT lead_id, status, readiness_score,
+        ROW_NUMBER() OVER (PARTITION BY lead_id ORDER BY created_at DESC) AS rn
+      FROM research_reports
+      WHERE deleted_at IS NULL
+    ) rr ON rr.lead_id = l.id AND rr.rn = 1
+    LEFT JOIN (
+      SELECT lead_id, MAX(created_at) AS last_activity_at
+      FROM activities
+      GROUP BY lead_id
+    ) act ON act.lead_id = l.id
     ${where}
     ORDER BY l.${sortCol} ${sortDir}
     LIMIT @limit OFFSET @offset
@@ -104,11 +115,12 @@ router.post('/:id/restore', (req, res) => {
   if (!lead) return res.status(404).json({ error: 'Archived lead not found' });
 
   const now = new Date().toISOString();
-  db.prepare(`UPDATE leads SET deleted_at=NULL, deleted_by=NULL, delete_reason=NULL, updated_at=? WHERE id=?`).run(now, req.params.id);
-
-  db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
-    req.params.id, req.session.user.username, 'Lead restored from archive'
-  );
+  db.transaction(() => {
+    db.prepare(`UPDATE leads SET deleted_at=NULL, deleted_by=NULL, delete_reason=NULL, updated_at=? WHERE id=?`).run(now, req.params.id);
+    db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
+      req.params.id, req.session.user.username, 'Lead restored from archive'
+    );
+  })();
 
   const restored = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
   res.json(restored);
@@ -156,13 +168,15 @@ router.post('/:id/enrich', async (req, res) => {
 
     if (Object.keys(updates).length > 0) {
       const setClauses = Object.keys(updates).map(k => `${k}=@${k}`).join(', ');
-      db.prepare(`UPDATE leads SET ${setClauses}, updated_at=@updated_at WHERE id=@id`).run({
-        ...updates, updated_at: new Date().toISOString(), id: req.params.id
-      });
-      db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
-        req.params.id, req.session.user.username,
-        `Lead enriched — found: ${Object.keys(updates).join(', ')}`
-      );
+      db.transaction(() => {
+        db.prepare(`UPDATE leads SET ${setClauses}, updated_at=@updated_at WHERE id=@id`).run({
+          ...updates, updated_at: new Date().toISOString(), id: req.params.id
+        });
+        db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
+          req.params.id, req.session.user.username,
+          `Lead enriched — found: ${Object.keys(updates).join(', ')}`
+        );
+      })();
     }
 
     const updatedLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
@@ -244,12 +258,14 @@ router.post('/', (req, res) => {
     )
   `);
 
-  const result = stmt.run(lead);
-  const newLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(result.lastInsertRowid);
-
-  db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
-    result.lastInsertRowid, req.session.user.username, 'Lead created'
-  );
+  let newLead;
+  db.transaction(() => {
+    const result = stmt.run(lead);
+    db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
+      result.lastInsertRowid, req.session.user.username, 'Lead created'
+    );
+    newLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(result.lastInsertRowid);
+  })();
 
   res.status(201).json(newLead);
 });
@@ -300,22 +316,24 @@ router.put('/:id', (req, res) => {
   updated.lead_score = calculateLeadScore(updated);
   updated.updated_at = new Date().toISOString();
 
-  db.prepare(`
-    UPDATE leads SET
-      business_name=@business_name, category=@category, priority_tier=@priority_tier,
-      contact_quality=@contact_quality, phone=@phone, email=@email, website=@website,
-      address=@address, city=@city, state=@state, linkedin=@linkedin,
-      estimated_revenue=@estimated_revenue, company_size=@company_size,
-      lead_score=@lead_score, lead_status=@lead_status, lead_type=@lead_type,
-      notes=@notes, deal_value=@deal_value, updated_at=@updated_at
-    WHERE id=@id
-  `).run({ ...updated, id: req.params.id });
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE leads SET
+        business_name=@business_name, category=@category, priority_tier=@priority_tier,
+        contact_quality=@contact_quality, phone=@phone, email=@email, website=@website,
+        address=@address, city=@city, state=@state, linkedin=@linkedin,
+        estimated_revenue=@estimated_revenue, company_size=@company_size,
+        lead_score=@lead_score, lead_status=@lead_status, lead_type=@lead_type,
+        notes=@notes, deal_value=@deal_value, updated_at=@updated_at
+      WHERE id=@id
+    `).run({ ...updated, id: req.params.id });
 
-  if (statusChanged) {
-    db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'status_change', ?)`).run(
-      req.params.id, req.session.user.username, `Status changed to ${updated.lead_status}`
-    );
-  }
+    if (statusChanged) {
+      db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'status_change', ?)`).run(
+        req.params.id, req.session.user.username, `Status changed to ${updated.lead_status}`
+      );
+    }
+  })();
 
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
   res.json(lead);
@@ -336,16 +354,18 @@ router.delete('/:id', (req, res) => {
   const now = new Date().toISOString();
   const user = req.session.user.username;
 
-  db.prepare(`
-    UPDATE leads SET deleted_at=?, deleted_by=?, delete_reason=?, updated_at=?
-    WHERE id=?
-  `).run(now, user, reason.trim(), now, req.params.id);
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE leads SET deleted_at=?, deleted_by=?, delete_reason=?, updated_at=?
+      WHERE id=?
+    `).run(now, user, reason.trim(), now, req.params.id);
 
-  // Log to activities so it shows in recent activity feed
-  db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
-    req.params.id, user,
-    `Lead deleted — ${reason.trim()}`
-  );
+    // Log to activities so it shows in recent activity feed
+    db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
+      req.params.id, user,
+      `Lead deleted — ${reason.trim()}`
+    );
+  })();
 
   res.json({ ok: true, message: `Lead "${existing.business_name}" archived` });
 });
@@ -377,32 +397,36 @@ router.post('/:id/calls', (req, res) => {
     return res.status(400).json({ error: 'call_date and outcome are required' });
   }
 
-  const result = db.prepare(`
-    INSERT INTO call_logs (lead_id, logged_by, call_date, outcome, duration_minutes, follow_up_needed, follow_up_date, recording_link, notes)
-    VALUES (@lead_id, @logged_by, @call_date, @outcome, @duration_minutes, @follow_up_needed, @follow_up_date, @recording_link, @notes)
-  `).run({
-    lead_id: req.params.id,
-    logged_by: req.session.user.username,
-    call_date, outcome,
-    duration_minutes: duration_minutes || null,
-    follow_up_needed: follow_up_needed ? 1 : 0,
-    follow_up_date: follow_up_date || null,
-    recording_link: recording_link || null,
-    notes: notes || null,
-  });
+  let call;
+  db.transaction(() => {
+    const result = db.prepare(`
+      INSERT INTO call_logs (lead_id, logged_by, call_date, outcome, duration_minutes, follow_up_needed, follow_up_date, recording_link, notes)
+      VALUES (@lead_id, @logged_by, @call_date, @outcome, @duration_minutes, @follow_up_needed, @follow_up_date, @recording_link, @notes)
+    `).run({
+      lead_id: req.params.id,
+      logged_by: req.session.user.username,
+      call_date, outcome,
+      duration_minutes: duration_minutes || null,
+      follow_up_needed: follow_up_needed ? 1 : 0,
+      follow_up_date: follow_up_date || null,
+      recording_link: recording_link || null,
+      notes: notes || null,
+    });
 
-  db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'call', ?)`).run(
-    req.params.id, req.session.user.username,
-    `Call logged — ${outcome}${notes ? ': ' + notes.substring(0, 100) : ''}`
-  );
+    db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'call', ?)`).run(
+      req.params.id, req.session.user.username,
+      `Call logged — ${outcome}${notes ? ': ' + notes.substring(0, 100) : ''}`
+    );
 
-  if (outcome === 'interested' || outcome === 'callback_scheduled') {
-    db.prepare(`UPDATE leads SET lead_status='contacted', updated_at=? WHERE id=? AND lead_status='new'`).run(new Date().toISOString(), req.params.id);
-  } else if (outcome === 'no_answer' || outcome === 'voicemail') {
-    db.prepare(`UPDATE leads SET lead_status='no_answer', updated_at=? WHERE id=? AND lead_status='new'`).run(new Date().toISOString(), req.params.id);
-  }
+    if (outcome === 'interested' || outcome === 'callback_scheduled') {
+      db.prepare(`UPDATE leads SET lead_status='contacted', updated_at=? WHERE id=? AND lead_status='new'`).run(new Date().toISOString(), req.params.id);
+    } else if (outcome === 'no_answer' || outcome === 'voicemail') {
+      db.prepare(`UPDATE leads SET lead_status='no_answer', updated_at=? WHERE id=? AND lead_status='new'`).run(new Date().toISOString(), req.params.id);
+    }
 
-  const call = db.prepare('SELECT * FROM call_logs WHERE id = ?').get(result.lastInsertRowid);
+    call = db.prepare('SELECT * FROM call_logs WHERE id = ?').get(result.lastInsertRowid);
+  })();
+
   res.status(201).json(call);
 });
 
@@ -421,12 +445,13 @@ router.delete('/:id/calls/:callId', (req, res) => {
   const now = new Date().toISOString();
   const user = req.session.user.username;
 
-  db.prepare(`UPDATE call_logs SET deleted_at=?, deleted_by=?, delete_reason=? WHERE id=?`).run(now, user, reason.trim(), req.params.callId);
-
-  db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
-    req.params.id, user,
-    `Call log deleted (${call.call_date}, ${call.outcome}) — ${reason.trim()}`
-  );
+  db.transaction(() => {
+    db.prepare(`UPDATE call_logs SET deleted_at=?, deleted_by=?, delete_reason=? WHERE id=?`).run(now, user, reason.trim(), req.params.callId);
+    db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
+      req.params.id, user,
+      `Call log deleted (${call.call_date}, ${call.outcome}) — ${reason.trim()}`
+    );
+  })();
 
   res.json({ ok: true });
 });
@@ -480,15 +505,15 @@ router.delete('/:id/report', (req, res) => {
   const now = new Date().toISOString();
   const user = req.session.user.username;
 
-  db.prepare(`UPDATE research_reports SET deleted_at=?, deleted_by=?, delete_reason=? WHERE id=?`).run(now, user, reason.trim(), report.id);
-
-  // Also reset the lead status from 'researched' back to 'contacted' if applicable
-  db.prepare(`UPDATE leads SET lead_status='contacted', updated_at=? WHERE id=? AND lead_status='researched'`).run(now, req.params.id);
-
-  db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
-    req.params.id, user,
-    `Research report deleted — ${reason.trim()}`
-  );
+  db.transaction(() => {
+    db.prepare(`UPDATE research_reports SET deleted_at=?, deleted_by=?, delete_reason=? WHERE id=?`).run(now, user, reason.trim(), report.id);
+    // Also reset the lead status from 'researched' back to 'contacted' if applicable
+    db.prepare(`UPDATE leads SET lead_status='contacted', updated_at=? WHERE id=? AND lead_status='researched'`).run(now, req.params.id);
+    db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
+      req.params.id, user,
+      `Research report deleted — ${reason.trim()}`
+    );
+  })();
 
   res.json({ ok: true });
 });

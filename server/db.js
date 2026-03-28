@@ -125,9 +125,15 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(lead_status);
     CREATE INDEX IF NOT EXISTS idx_leads_category ON leads(category);
     CREATE INDEX IF NOT EXISTS idx_leads_tier ON leads(priority_tier);
+    CREATE INDEX IF NOT EXISTS idx_leads_deleted_at ON leads(deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_leads_updated_at ON leads(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_leads_business_name ON leads(business_name);
     CREATE INDEX IF NOT EXISTS idx_activities_lead ON activities(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_activities_lead_date ON activities(lead_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_call_logs_lead ON call_logs(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_call_logs_followup ON call_logs(follow_up_needed, follow_up_date);
     CREATE INDEX IF NOT EXISTS idx_research_lead ON research_reports(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_research_lead_date ON research_reports(lead_id, created_at);
   `);
 
   // Migrations: add soft-delete columns if they don't exist yet

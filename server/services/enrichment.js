@@ -15,7 +15,7 @@ async function googleSearch(query) {
   url.searchParams.set('num', '5');
 
   return new Promise((resolve) => {
-    https.get(url.toString(), (res) => {
+    const req = https.get(url.toString(), (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
@@ -31,7 +31,11 @@ async function googleSearch(query) {
           resolve({ results: [], skipped: false, error: 'Parse error' });
         }
       });
-    }).on('error', (err) => {
+    });
+    req.setTimeout(10000, () => {
+      req.destroy(new Error('Request timeout'));
+    });
+    req.on('error', (err) => {
       resolve({ results: [], skipped: false, error: err.message });
     });
   });
