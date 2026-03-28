@@ -30,9 +30,16 @@ app.use(cors({
   credentials: true,
 }));
 
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret || sessionSecret === 'nesvr-crm-secret-2024') {
+  console.error('\nFATAL: SESSION_SECRET is not set or is using the insecure default.');
+  console.error('Set a strong random SESSION_SECRET in your .env file and restart.\n');
+  process.exit(1);
+}
+
 app.use(session({
   store: new SQLiteStore({ db: 'sessions.db', dir: path.join(__dirname, '..') }),
-  secret: process.env.SESSION_SECRET || 'nesvr-crm-secret-2024',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   name: 'nesvr.sid',

@@ -23,6 +23,9 @@
     "node-fetch": "^3.3.2",
     "vue-router": "^4.6.4"
   },
+  "overrides": {
+    "tar": ">=7.5.11"
+  },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.1.4",
     "concurrently": "^9.1.0",
