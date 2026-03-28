@@ -1,5 +1,15 @@
 <template>
   <div class="dashboard">
+
+    <!-- Error state -->
+    <div v-if="loadError" class="error-banner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      Failed to load dashboard data.
+      <button class="btn btn-secondary btn-sm" @click="loadMetrics">Retry</button>
+    </div>
+
     <!-- Stat Cards -->
     <div class="stat-grid">
       <StatCard :value="metrics?.total" label="Total Leads" color="blue" :loading="loading">
@@ -136,6 +146,7 @@ import StatCard from '../components/StatCard.vue';
 let Chart;
 const metrics = ref(null);
 const loading = ref(true);
+const loadError = ref(false);
 const recentActivity = ref([]);
 
 const categoryChartRef = ref(null);
@@ -155,12 +166,15 @@ const topCategories = computed(() => (metrics.value?.byCategory || []).slice(0, 
 
 async function loadMetrics() {
   loading.value = true;
+  loadError.value = false;
   try {
     const res = await dashboard.metrics();
     metrics.value = res.data;
     recentActivity.value = res.data.recentActivity || [];
     await nextTick();
     renderCharts();
+  } catch {
+    loadError.value = true;
   } finally {
     loading.value = false;
   }
@@ -285,6 +299,19 @@ onMounted(loadMetrics);
 
 <style scoped>
 .dashboard { display: flex; flex-direction: column; gap: 20px; }
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--danger-dim);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+}
 
 .stat-grid {
   display: grid;

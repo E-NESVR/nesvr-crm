@@ -3,10 +3,13 @@
     <!-- Filter bar -->
     <div class="filter-bar card">
       <div class="filter-search">
-        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input type="text" class="filter-input" placeholder="Search by name, phone, or category…" v-model="filters.search" @input="onSearchInput" />
+        <span class="search-icon-wrap">
+          <span v-if="loading && filters.search" class="spinner" style="width:14px;height:14px;border-width:2px"></span>
+          <svg v-else class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </span>
+        <input ref="searchInputRef" type="text" class="filter-input" placeholder="Search by name, phone, or category…" v-model="filters.search" @input="onSearchInput" />
         <button v-if="filters.search" class="clear-btn" @click="filters.search = ''; fetchLeads()">✕</button>
       </div>
 
@@ -220,7 +223,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, watch, h } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, computed, watch, h } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { leads as leadsApi, research as researchApi } from '../api';
 import { store } from '../store';
@@ -238,6 +241,7 @@ const sort = ref('updated_at');
 const sortOrder = ref('desc');
 const selectedIds = reactive(new Set());
 
+const searchInputRef = ref(null);
 const queueRunning = ref(false);
 const queueStatus = ref({ completed: 0, total: 0 });
 
@@ -405,9 +409,21 @@ const SortIcon = (props) => {
   return h('span', { style: 'margin-left:4px' }, props.order === 'asc' ? '↑' : '↓');
 };
 
+function onSlashKey(e) {
+  if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA' && document.activeElement?.tagName !== 'SELECT') {
+    e.preventDefault();
+    searchInputRef.value?.focus();
+  }
+}
+
 onMounted(() => {
   fetchLeads();
   loadCategories();
+  window.addEventListener('keydown', onSlashKey);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onSlashKey);
 });
 
 watch(() => route.query.search, (val) => {
@@ -431,11 +447,16 @@ watch(() => route.query.search, (val) => {
   align-items: center;
 }
 
-.search-icon {
+.search-icon-wrap {
   position: absolute;
   left: 12px;
-  color: var(--text-muted);
+  display: flex;
+  align-items: center;
   pointer-events: none;
+}
+
+.search-icon {
+  color: var(--text-muted);
 }
 
 .filter-input {

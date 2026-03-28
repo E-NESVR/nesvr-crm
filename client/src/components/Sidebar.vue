@@ -213,6 +213,6 @@ onMounted(async () => {
     transform: translateX(-100%);
     transition: transform var(--transition-slow);
   }
-  .sidebar.open { transform: translateX(0); }
+  .sidebar:not(.collapsed) { transform: translateX(0); }
 }
 </style>

@@ -478,6 +478,15 @@ async function loadActivities() {
 }
 
 async function updateStatus() {
+  if (editStatus.value === 'cold') {
+    const confirmed = window.confirm(
+      `Mark "${lead.value.business_name}" as Cold?\n\nThis removes the lead from your active pipeline. You can reactivate it at any time by changing the status.`
+    );
+    if (!confirmed) {
+      editStatus.value = lead.value.lead_status;
+      return;
+    }
+  }
   try {
     const res = await leadsApi.update(route.params.id, { lead_status: editStatus.value });
     lead.value = { ...lead.value, ...res.data };
