@@ -2,6 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { getDB, calculateLeadScore } = require('../db');
 
+// Input validation helpers
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const URL_RE = /^https?:\/\/.+/i;
+const PHONE_RE = /^[\d\s().+\-]{7,20}$/;
+
+function validateLeadFields({ email, website, linkedin, phone }) {
+  const errors = [];
+  if (email && !EMAIL_RE.test(email)) errors.push('Invalid email format');
+  if (website && !URL_RE.test(website)) errors.push('Website must start with http:// or https://');
+  if (linkedin && !URL_RE.test(linkedin)) errors.push('LinkedIn URL must start with http:// or https://');
+  if (phone && !PHONE_RE.test(phone)) errors.push('Invalid phone number format');
+  return errors;
+}
+
 // GET /api/leads
 router.get('/', (req, res) => {
   const db = getDB();
@@ -116,6 +130,9 @@ router.post('/', (req, res) => {
 
   if (!business_name) return res.status(400).json({ error: 'Business name required' });
 
+  const fieldErrors = validateLeadFields({ email, website, linkedin, phone });
+  if (fieldErrors.length) return res.status(400).json({ error: fieldErrors.join('; ') });
+
   const lead = {
     business_name, category, priority_tier, contact_quality,
     phone, email, website, address, city, state: state || 'FL', linkedin,
@@ -169,6 +186,15 @@ router.put('/:id', (req, res) => {
     'phone', 'email', 'website', 'address', 'city', 'state', 'linkedin',
     'estimated_revenue', 'company_size', 'lead_status', 'lead_type', 'notes',
   ];
+
+  // Validate any format-sensitive fields that are being changed
+  const fieldErrors = validateLeadFields({
+    email:    req.body.email    !== undefined ? req.body.email    : null,
+    website:  req.body.website  !== undefined ? req.body.website  : null,
+    linkedin: req.body.linkedin !== undefined ? req.body.linkedin : null,
+    phone:    req.body.phone    !== undefined ? req.body.phone    : null,
+  });
+  if (fieldErrors.length) return res.status(400).json({ error: fieldErrors.join('; ') });
 
   const updated = { ...existing };
   let statusChanged = false;

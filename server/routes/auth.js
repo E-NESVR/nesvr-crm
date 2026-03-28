@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { USERS } = require('../auth');
+const { USERS, checkPassword } = require('../auth');
 
 router.post('/login', (req, res) => {
   const { username, password } = req.body;
@@ -9,7 +9,7 @@ router.post('/login', (req, res) => {
   }
 
   const user = USERS[username.toLowerCase()];
-  if (!user || user.password !== password) {
+  if (!user || !checkPassword(password, user.passwordHash)) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 

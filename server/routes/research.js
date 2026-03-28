@@ -10,7 +10,8 @@ router.post('/leads/:id/research', async (req, res) => {
     const report = await runResearch(req.params.id);
     res.json({ ok: true, report });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[research] runResearch error:', err.message);
+    res.status(500).json({ error: 'Research failed. Check server logs for details.' });
   }
 });
 
@@ -68,7 +69,8 @@ router.post('/leads/:id/emails/generate', async (req, res) => {
 
     res.json({ ...result, draft_id: savedDraft.lastInsertRowid });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[research] generateAIEmail error:', err.message);
+    res.status(500).json({ error: 'Email generation failed. Check server logs for details.' });
   }
 });
 

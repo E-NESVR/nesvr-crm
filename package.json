@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
     "axios": "^1.7.7",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.3.0",
     "chart.js": "^4.5.1",
     "connect-sqlite3": "^0.9.15",
@@ -24,7 +25,8 @@
     "vue-router": "^4.6.4"
   },
   "overrides": {
-    "tar": ">=7.5.11"
+    "tar": ">=7.5.11",
+    "@tootallnate/once": ">=3.0.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.1.4",

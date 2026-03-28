@@ -4,7 +4,7 @@ const { getDB } = require('../db');
 
 router.get('/recent', (req, res) => {
   const db = getDB();
-  const limit = parseInt(req.query.limit) || 20;
+  const limit = Math.min(parseInt(req.query.limit) || 20, 500);
   const activities = db.prepare(`
     SELECT a.*, l.business_name
     FROM activities a
