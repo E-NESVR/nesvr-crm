@@ -240,6 +240,12 @@ function runMigrations(database) {
   if (!hasColumn('research_reports', 'delete_reason')) {
     database.exec('ALTER TABLE research_reports ADD COLUMN delete_reason TEXT');
   }
+
+  // Deal value tracking
+  if (!hasColumn('leads', 'deal_value')) {
+    database.exec('ALTER TABLE leads ADD COLUMN deal_value INTEGER DEFAULT 0');
+    console.log('[DB] Migration: added deal_value to leads');
+  }
 }
 
 module.exports = { getDB, initDB, calculateLeadScore };

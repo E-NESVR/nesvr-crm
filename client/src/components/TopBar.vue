@@ -60,6 +60,7 @@ const PAGE_TITLES = {
   ResearchReport: 'Research Report',
   Communications: 'Communications',
   Settings: 'Settings',
+  Archives: 'Archives',
 };
 
 const currentPageTitle = computed(() => PAGE_TITLES[route.name] || 'NESVR CRM');

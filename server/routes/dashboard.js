@@ -36,6 +36,9 @@ router.get('/metrics', (req, res) => {
   `).all();
 
   const avgScore = db.prepare('SELECT AVG(lead_score) as avg FROM leads WHERE deleted_at IS NULL').get().avg;
+  const pipelineValue = db.prepare("SELECT COALESCE(SUM(deal_value), 0) as total FROM leads WHERE deleted_at IS NULL AND lead_status NOT IN ('cold', 'closed_won')").get().total;
+  const closedValue = db.prepare("SELECT COALESCE(SUM(deal_value), 0) as total FROM leads WHERE deleted_at IS NULL AND lead_status = 'closed_won'").get().total;
+  const archivedCount = db.prepare('SELECT COUNT(*) as cnt FROM leads WHERE deleted_at IS NOT NULL').get().cnt;
 
   const recentActivity = db.prepare(`
     SELECT a.*, l.business_name
@@ -60,6 +63,9 @@ router.get('/metrics', (req, res) => {
     closed,
     researched,
     avgScore: Math.round(avgScore || 0),
+    pipelineValue,
+    closedValue,
+    archivedCount,
     byCategory,
     byStatus,
     byTier,

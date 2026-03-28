@@ -46,6 +46,10 @@ export const leads = {
   report: (id) => api.get(`/leads/${id}/report`),
   deleteReport: (id, reason) => api.delete(`/leads/${id}/report`, { data: { reason } }),
   emails: (id) => api.get(`/leads/${id}/emails`),
+  archived: () => api.get('/leads/archived'),
+  restore: (id) => api.post(`/leads/${id}/restore`),
+  bulkStatus: (ids, status) => api.put('/leads/bulk-status', { ids, status }),
+  enrich: (id) => api.post(`/leads/${id}/enrich`),
 };
 
 // ─── Research ─────────────────────────────────────

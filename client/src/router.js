@@ -43,6 +43,11 @@ const routes = [
     name: 'Settings',
     component: () => import('./pages/Settings.vue'),
   },
+  {
+    path: '/archives',
+    name: 'Archives',
+    component: () => import('./pages/Archives.vue'),
+  },
 ];
 
 const router = createRouter({

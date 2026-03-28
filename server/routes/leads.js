@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDB, calculateLeadScore } = require('../db');
+const { enrichLead } = require('../services/enrichment');
 
 // Input validation helpers
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -82,6 +83,94 @@ router.get('/', (req, res) => {
     limit: parseInt(limit),
     pages: Math.ceil(total.cnt / parseInt(limit)),
   });
+});
+
+// GET /api/leads/archived
+router.get('/archived', (req, res) => {
+  const db = getDB();
+  const leads = db.prepare(`
+    SELECT l.*, l.deleted_by, l.delete_reason, l.deleted_at
+    FROM leads l
+    WHERE l.deleted_at IS NOT NULL
+    ORDER BY l.deleted_at DESC
+  `).all();
+  res.json(leads);
+});
+
+// POST /api/leads/:id/restore
+router.post('/:id/restore', (req, res) => {
+  const db = getDB();
+  const lead = db.prepare('SELECT * FROM leads WHERE id = ? AND deleted_at IS NOT NULL').get(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Archived lead not found' });
+
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE leads SET deleted_at=NULL, deleted_by=NULL, delete_reason=NULL, updated_at=? WHERE id=?`).run(now, req.params.id);
+
+  db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
+    req.params.id, req.session.user.username, 'Lead restored from archive'
+  );
+
+  const restored = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
+  res.json(restored);
+});
+
+// PUT /api/leads/bulk-status — set status for multiple leads at once
+router.put('/bulk-status', (req, res) => {
+  const db = getDB();
+  const { ids, status } = req.body;
+  const validStatuses = ['new', 'contacted', 'no_answer', 'researched', 'demo_booked', 'closed_won', 'cold'];
+
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+  if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+  const now = new Date().toISOString();
+  const updateStmt = db.prepare(`UPDATE leads SET lead_status=?, updated_at=? WHERE id=? AND deleted_at IS NULL`);
+  const actStmt = db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'status_change', ?)`);
+
+  const bulkUpdate = db.transaction(() => {
+    for (const id of ids) {
+      updateStmt.run(status, now, id);
+      actStmt.run(id, req.session.user.username, `Status changed to ${status} (bulk update)`);
+    }
+  });
+  bulkUpdate();
+
+  res.json({ ok: true, updated: ids.length });
+});
+
+// POST /api/leads/:id/enrich — run Google enrichment to fill in missing fields
+router.post('/:id/enrich', async (req, res) => {
+  const db = getDB();
+  const lead = db.prepare('SELECT * FROM leads WHERE id = ? AND deleted_at IS NULL').get(req.params.id);
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+
+  try {
+    const enriched = await enrichLead(lead);
+
+    if (enriched.skipped) {
+      return res.json({ ok: true, skipped: true, message: 'Google Search API not configured' });
+    }
+
+    const updates = {};
+    if (!lead.website && enriched.website) updates.website = enriched.website;
+
+    if (Object.keys(updates).length > 0) {
+      const setClauses = Object.keys(updates).map(k => `${k}=@${k}`).join(', ');
+      db.prepare(`UPDATE leads SET ${setClauses}, updated_at=@updated_at WHERE id=@id`).run({
+        ...updates, updated_at: new Date().toISOString(), id: req.params.id
+      });
+      db.prepare(`INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, ?, 'note', ?)`).run(
+        req.params.id, req.session.user.username,
+        `Lead enriched — found: ${Object.keys(updates).join(', ')}`
+      );
+    }
+
+    const updatedLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
+    res.json({ ok: true, lead: updatedLead, found: Object.keys(updates), sources: enriched.sources });
+  } catch (err) {
+    console.error('[enrich] error:', err.message);
+    res.status(500).json({ error: 'Enrichment failed' });
+  }
 });
 
 // GET /api/leads/categories
@@ -184,7 +273,7 @@ router.put('/:id', (req, res) => {
   const updatable = [
     'business_name', 'category', 'priority_tier', 'contact_quality',
     'phone', 'email', 'website', 'address', 'city', 'state', 'linkedin',
-    'estimated_revenue', 'company_size', 'lead_status', 'lead_type', 'notes',
+    'estimated_revenue', 'company_size', 'lead_status', 'lead_type', 'notes', 'deal_value',
   ];
 
   // Validate any format-sensitive fields that are being changed
@@ -218,7 +307,7 @@ router.put('/:id', (req, res) => {
       address=@address, city=@city, state=@state, linkedin=@linkedin,
       estimated_revenue=@estimated_revenue, company_size=@company_size,
       lead_score=@lead_score, lead_status=@lead_status, lead_type=@lead_type,
-      notes=@notes, updated_at=@updated_at
+      notes=@notes, deal_value=@deal_value, updated_at=@updated_at
     WHERE id=@id
   `).run({ ...updated, id: req.params.id });
 

@@ -1,4 +1,11 @@
 <template>
+  <!-- Mobile overlay backdrop -->
+  <div
+    class="sidebar-backdrop"
+    v-if="isMobileOpen"
+    @click="store.toggleSidebar()"
+  ></div>
+
   <aside class="sidebar" :class="{ collapsed: !store.sidebarOpen }">
     <div class="sidebar-logo">
       <div class="logo-mark">N</div>
@@ -33,6 +40,15 @@
           <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
         </svg>
         <span>Communications</span>
+        <span class="nav-badge followup-badge" v-if="followupCount > 0">{{ followupCount }}</span>
+      </router-link>
+
+      <router-link to="/archives" class="nav-item" active-class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5" rx="1"/>
+          <line x1="10" y1="12" x2="14" y2="12"/>
+        </svg>
+        <span>Archives</span>
       </router-link>
 
       <router-link to="/settings" class="nav-item" active-class="active">
@@ -65,12 +81,18 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { store } from '../store';
-import { auth } from '../api';
+import { auth, communications } from '../api';
 
 const router = useRouter();
-const leadCount = ref(null);
+const followupCount = ref(0);
 
 const userInitial = computed(() => (store.user?.displayName || 'U')[0].toUpperCase());
+
+// True when on mobile AND sidebar is open (not collapsed)
+const isMobileOpen = computed(() => {
+  if (typeof window === 'undefined') return false;
+  return window.innerWidth <= 768 && store.sidebarOpen;
+});
 
 async function logout() {
   try {
@@ -82,7 +104,10 @@ async function logout() {
 }
 
 onMounted(async () => {
-  // Optionally fetch total lead count for badge
+  try {
+    const res = await communications.followups();
+    followupCount.value = res.data.length;
+  } catch {}
 });
 </script>
 
@@ -214,5 +239,25 @@ onMounted(async () => {
     transition: transform var(--transition-slow);
   }
   .sidebar:not(.collapsed) { transform: translateX(0); }
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 99;
+    backdrop-filter: blur(2px);
+  }
+}
+
+.followup-badge {
+  background: var(--warning-dim);
+  color: var(--warning);
 }
 </style>

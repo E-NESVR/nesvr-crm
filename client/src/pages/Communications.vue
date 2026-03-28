@@ -239,7 +239,10 @@ function copyToClipboard() {
 }
 
 function openInEmail() {
-  if (!selectedLead.value?.email) { store.addToast('Lead has no email address on file', 'warning'); return; }
+  if (!selectedLead.value) { store.addToast('Select a lead first', 'warning'); return; }
+  if (!selectedLead.value.email) { store.addToast('Lead has no email address on file', 'warning'); return; }
+  if (!subject.value.trim()) { store.addToast('Add a subject line before opening in email', 'warning'); return; }
+  if (!body.value.trim()) { store.addToast('Email body is empty — add some content first', 'warning'); return; }
   const mailto = `mailto:${selectedLead.value.email}?subject=${encodeURIComponent(subject.value)}&body=${encodeURIComponent(body.value)}`;
   window.location.href = mailto;
 }

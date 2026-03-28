@@ -135,15 +135,18 @@
           <div class="card-body info-fields">
             <div class="field-row">
               <span class="field-label">Status</span>
-              <select class="form-select field-select" v-model="editStatus" @change="updateStatus">
-                <option value="new">New</option>
-                <option value="contacted">Contacted</option>
-                <option value="no_answer">No Answer</option>
-                <option value="researched">Researched</option>
-                <option value="demo_booked">Demo Booked</option>
-                <option value="closed_won">Closed Won</option>
-                <option value="cold">Cold</option>
-              </select>
+              <div class="field-input-wrap">
+                <select class="form-select field-select" v-model="editStatus" @change="updateStatus" :disabled="statusSaving">
+                  <option value="new">New</option>
+                  <option value="contacted">Contacted</option>
+                  <option value="no_answer">No Answer</option>
+                  <option value="researched">Researched</option>
+                  <option value="demo_booked">Demo Booked</option>
+                  <option value="closed_won">Closed Won</option>
+                  <option value="cold">Cold</option>
+                </select>
+                <span v-if="statusSaving" class="spinner" style="width:12px;height:12px;border-width:2px;flex-shrink:0"></span>
+              </div>
             </div>
             <div class="field-row">
               <span class="field-label">Lead Type</span>
@@ -175,6 +178,24 @@
             <div class="field-row">
               <span class="field-label">Updated</span>
               <span class="field-value text-muted">{{ formatFullDate(lead.updated_at) }}</span>
+            </div>
+
+            <div class="field-row">
+              <span class="field-label">Deal Value</span>
+              <div class="deal-value-wrap">
+                <span class="deal-currency">$</span>
+                <input
+                  class="form-input deal-input"
+                  type="number"
+                  min="0"
+                  step="100"
+                  v-model.number="dealValueEdit"
+                  placeholder="0"
+                  @blur="saveDealValue"
+                  @keydown.enter="$event.target.blur()"
+                />
+                <span v-if="dealValueSaving" class="spinner" style="width:12px;height:12px;border-width:2px;flex-shrink:0"></span>
+              </div>
             </div>
 
             <!-- Danger zone -->
@@ -430,6 +451,9 @@ const deletingReport = ref(false);
 
 const editStatus = ref('');
 const editType = ref('');
+const statusSaving = ref(false);
+const dealValueEdit = ref(0);
+const dealValueSaving = ref(false);
 
 const callForm = ref({
   call_date: new Date().toISOString().split('T')[0],
@@ -450,6 +474,7 @@ async function loadLead() {
     lead.value = res.data;
     editStatus.value = res.data.lead_status;
     editType.value = res.data.lead_type;
+    dealValueEdit.value = res.data.deal_value || 0;
   } catch {
     lead.value = null;
   } finally {
@@ -487,6 +512,7 @@ async function updateStatus() {
       return;
     }
   }
+  statusSaving.value = true;
   try {
     const res = await leadsApi.update(route.params.id, { lead_status: editStatus.value });
     lead.value = { ...lead.value, ...res.data };
@@ -495,6 +521,8 @@ async function updateStatus() {
   } catch {
     store.addToast('Failed to update status', 'error');
     editStatus.value = lead.value.lead_status;
+  } finally {
+    statusSaving.value = false;
   }
 }
 
@@ -507,19 +535,46 @@ async function updateType() {
   }
 }
 
+async function saveDealValue() {
+  dealValueSaving.value = true;
+  try {
+    const res = await leadsApi.update(route.params.id, { deal_value: dealValueEdit.value || 0 });
+    lead.value = { ...lead.value, ...res.data };
+    store.addToast('Deal value saved', 'success');
+  } catch {
+    store.addToast('Failed to save deal value', 'error');
+    dealValueEdit.value = lead.value.deal_value || 0;
+  } finally {
+    dealValueSaving.value = false;
+  }
+}
+
 async function submitCall() {
   if (!callForm.value.call_date || !callForm.value.outcome) {
     store.addToast('Date and outcome are required', 'warning');
     return;
   }
   callSaving.value = true;
+  const outcome = callForm.value.outcome;
   try {
-    await leadsApi.logCall(route.params.id, callForm.value);
+    const callRes = await leadsApi.logCall(route.params.id, callForm.value);
     showCallModal.value = false;
     store.addToast('Call logged successfully', 'success');
     callForm.value = { call_date: new Date().toISOString().split('T')[0], outcome: '', duration_minutes: '', follow_up_needed: false, follow_up_date: '', recording_link: '', notes: '' };
+    await loadLead();
     loadCalls();
     loadActivities();
+
+    // Suggest status change for not_interested outcome
+    if (outcome === 'not_interested' && lead.value.lead_status !== 'cold') {
+      const ok = window.confirm(
+        `Call outcome was "Not Interested." Would you like to mark ${lead.value.business_name} as Cold?`
+      );
+      if (ok) {
+        editStatus.value = 'cold';
+        await updateStatus();
+      }
+    }
   } catch (err) {
     store.addToast(err.response?.data?.error || 'Failed to log call', 'error');
   } finally {
@@ -723,6 +778,28 @@ onMounted(() => {
 .field-label { font-size: 12px; font-weight: 500; color: var(--text-muted); min-width: 100px; text-transform: uppercase; letter-spacing: 0.04em; }
 .field-select { flex: 1; padding: 5px 8px; font-size: 13px; }
 .field-value { font-size: 13px; }
+.field-input-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
+.field-input-wrap .field-select { flex: 1; }
+
+/* Deal value */
+.deal-value-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.deal-currency {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.deal-input {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 13px;
+  width: auto;
+}
 
 /* Danger zone */
 .danger-zone {
