@@ -130,8 +130,11 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_research_lead ON research_reports(lead_id);
   `);
 
+  // Migrations: add soft-delete columns if they don't exist yet
+  runMigrations(database);
+
   // Import CSV if leads table is empty
-  const count = database.prepare('SELECT COUNT(*) as cnt FROM leads').get();
+  const count = database.prepare('SELECT COUNT(*) as cnt FROM leads WHERE deleted_at IS NULL').get();
   if (count.cnt === 0) {
     importCSV(database);
   }
@@ -192,6 +195,50 @@ function importCSV(database) {
     console.log(`[DB] Imported ${records.length} leads from CSV`);
   } catch (err) {
     console.error('[DB] CSV import error:', err.message);
+  }
+}
+
+function runMigrations(database) {
+  // Helper: check if a column exists on a table
+  const hasColumn = (table, col) => {
+    const info = database.prepare(`PRAGMA table_info(${table})`).all();
+    return info.some(c => c.name === col);
+  };
+
+  // Soft-delete columns for leads
+  if (!hasColumn('leads', 'deleted_at')) {
+    database.exec('ALTER TABLE leads ADD COLUMN deleted_at DATETIME');
+    console.log('[DB] Migration: added deleted_at to leads');
+  }
+  if (!hasColumn('leads', 'deleted_by')) {
+    database.exec('ALTER TABLE leads ADD COLUMN deleted_by TEXT');
+  }
+  if (!hasColumn('leads', 'delete_reason')) {
+    database.exec('ALTER TABLE leads ADD COLUMN delete_reason TEXT');
+  }
+
+  // Soft-delete columns for call_logs
+  if (!hasColumn('call_logs', 'deleted_at')) {
+    database.exec('ALTER TABLE call_logs ADD COLUMN deleted_at DATETIME');
+    console.log('[DB] Migration: added deleted_at to call_logs');
+  }
+  if (!hasColumn('call_logs', 'deleted_by')) {
+    database.exec('ALTER TABLE call_logs ADD COLUMN deleted_by TEXT');
+  }
+  if (!hasColumn('call_logs', 'delete_reason')) {
+    database.exec('ALTER TABLE call_logs ADD COLUMN delete_reason TEXT');
+  }
+
+  // Soft-delete columns for research_reports
+  if (!hasColumn('research_reports', 'deleted_at')) {
+    database.exec('ALTER TABLE research_reports ADD COLUMN deleted_at DATETIME');
+    console.log('[DB] Migration: added deleted_at to research_reports');
+  }
+  if (!hasColumn('research_reports', 'deleted_by')) {
+    database.exec('ALTER TABLE research_reports ADD COLUMN deleted_by TEXT');
+  }
+  if (!hasColumn('research_reports', 'delete_reason')) {
+    database.exec('ALTER TABLE research_reports ADD COLUMN delete_reason TEXT');
   }
 }
 

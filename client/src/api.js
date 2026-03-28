@@ -32,7 +32,7 @@ export const leads = {
   get: (id) => api.get(`/leads/${id}`),
   create: (data) => api.post('/leads', data),
   update: (id, data) => api.put(`/leads/${id}`, data),
-  delete: (id) => api.delete(`/leads/${id}`),
+  delete: (id, reason) => api.delete(`/leads/${id}`, { data: { reason } }),
   categories: () => api.get('/leads/categories'),
   export: (params) => {
     const query = new URLSearchParams(params).toString();
@@ -40,9 +40,11 @@ export const leads = {
   },
   calls: (id, user) => api.get(`/leads/${id}/calls`, { params: user ? { user } : {} }),
   logCall: (id, data) => api.post(`/leads/${id}/calls`, data),
+  deleteCall: (id, callId, reason) => api.delete(`/leads/${id}/calls/${callId}`, { data: { reason } }),
   activities: (id) => api.get(`/leads/${id}/activities`),
   logActivity: (id, data) => api.post(`/leads/${id}/activities`, data),
   report: (id) => api.get(`/leads/${id}/report`),
+  deleteReport: (id, reason) => api.delete(`/leads/${id}/report`, { data: { reason } }),
   emails: (id) => api.get(`/leads/${id}/emails`),
 };
 

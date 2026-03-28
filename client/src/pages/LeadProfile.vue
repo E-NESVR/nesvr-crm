@@ -61,11 +61,26 @@
         <div class="card research-card">
           <div class="card-header">
             <span class="card-title">Research Intelligence</span>
-            <button class="btn btn-primary btn-sm" @click="runResearch" :disabled="researchRunning">
-              <span class="spinner" style="width:12px;height:12px;border-width:2px" v-if="researchRunning"></span>
-              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              {{ researchRunning ? 'Running...' : (lead.report ? 'Re-run' : 'Run Research') }}
-            </button>
+            <div class="header-actions">
+              <button
+                v-if="lead.report"
+                class="btn btn-ghost btn-sm btn-icon"
+                title="Delete report"
+                @click="showDeleteReport = true"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                </svg>
+              </button>
+              <button class="btn btn-primary btn-sm" @click="runResearch" :disabled="researchRunning">
+                <span class="spinner" style="width:12px;height:12px;border-width:2px" v-if="researchRunning"></span>
+                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                {{ researchRunning ? 'Running...' : (lead.report ? 'Re-run' : 'Run Research') }}
+              </button>
+            </div>
           </div>
           <div class="card-body">
             <div v-if="!lead.report" class="empty-state" style="padding:24px 0">
@@ -161,6 +176,19 @@
               <span class="field-label">Updated</span>
               <span class="field-value text-muted">{{ formatFullDate(lead.updated_at) }}</span>
             </div>
+
+            <!-- Danger zone -->
+            <div class="danger-zone">
+              <button class="btn btn-danger btn-sm" @click="showDeleteLead = true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                </svg>
+                Archive Lead
+              </button>
+            </div>
           </div>
         </div>
 
@@ -196,6 +224,18 @@
                   <span class="call-user">{{ capitalize(call.logged_by) }}</span>
                   <span class="call-date text-muted text-sm">{{ formatDate(call.call_date) }}</span>
                   <span class="call-duration text-muted text-sm" v-if="call.duration_minutes">{{ call.duration_minutes }}min</span>
+                  <!-- Delete call button -->
+                  <button
+                    class="btn btn-ghost btn-icon call-delete-btn"
+                    title="Delete this call log"
+                    @click.stop="promptDeleteCall(call)"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="12" height="12">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                      <path d="M10 11v6M14 11v6"/>
+                    </svg>
+                  </button>
                 </div>
                 <div class="call-notes text-secondary" v-if="call.notes">{{ call.notes }}</div>
                 <div class="call-followup" v-if="call.follow_up_needed">
@@ -231,6 +271,8 @@
     <h3>Lead not found</h3>
     <router-link to="/leads" class="btn btn-primary mt-3">Back to Leads</router-link>
   </div>
+
+  <!-- ─── Modals ─────────────────────────────────── -->
 
   <!-- Call log modal -->
   <Modal v-if="showCallModal" title="Log a Call" size="md" @close="showCallModal = false">
@@ -310,6 +352,45 @@
       </button>
     </template>
   </Modal>
+
+  <!-- Delete lead modal -->
+  <DeleteConfirmModal
+    v-if="showDeleteLead"
+    title="Archive Lead"
+    :description="`This lead will be hidden from all views and reports. All associated calls, activities, and research are preserved and the lead can be recovered if needed.`"
+    :subject="lead?.business_name"
+    confirmLabel="Archive Lead"
+    reasonPlaceholder="e.g. Duplicate entry, wrong area, went out of business, already a customer…"
+    :deleting="deletingLead"
+    @confirm="deleteLead"
+    @cancel="showDeleteLead = false"
+  />
+
+  <!-- Delete call modal -->
+  <DeleteConfirmModal
+    v-if="showDeleteCall"
+    title="Delete Call Log"
+    :description="`This call log entry will be removed. The deletion reason will appear in the activity timeline.`"
+    :subject="callToDelete ? `${capitalize(callToDelete.logged_by)} · ${formatOutcome(callToDelete.outcome)} · ${formatDate(callToDelete.call_date)}` : ''"
+    confirmLabel="Delete Call Log"
+    reasonPlaceholder="e.g. Logged in error, duplicate entry, wrong lead…"
+    :deleting="deletingCall"
+    @confirm="deleteCall"
+    @cancel="showDeleteCall = false"
+  />
+
+  <!-- Delete report modal -->
+  <DeleteConfirmModal
+    v-if="showDeleteReport"
+    title="Delete Research Report"
+    :description="`The current research report will be removed. You can run a fresh report at any time.`"
+    :subject="lead?.business_name + ' — Research Report'"
+    confirmLabel="Delete Report"
+    reasonPlaceholder="e.g. Outdated data, ran on wrong lead, want a clean re-run…"
+    :deleting="deletingReport"
+    @confirm="deleteReport"
+    @cancel="showDeleteReport = false"
+  />
 </template>
 
 <script setup>
@@ -319,6 +400,7 @@ import { leads as leadsApi, research as researchApi } from '../api';
 import { store } from '../store';
 import Modal from '../components/Modal.vue';
 import ActivityTimeline from '../components/ActivityTimeline.vue';
+import DeleteConfirmModal from '../components/DeleteConfirmModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -336,6 +418,15 @@ const showCallModal = ref(false);
 const showActivityModal = ref(false);
 const callSaving = ref(false);
 const activitySaving = ref(false);
+
+// Delete state
+const showDeleteLead = ref(false);
+const showDeleteCall = ref(false);
+const showDeleteReport = ref(false);
+const callToDelete = ref(null);
+const deletingLead = ref(false);
+const deletingCall = ref(false);
+const deletingReport = ref(false);
 
 const editStatus = ref('');
 const editType = ref('');
@@ -461,6 +552,63 @@ async function runResearch() {
   }
 }
 
+// ─── Delete handlers ───────────────────────────────
+
+async function deleteLead(reason) {
+  deletingLead.value = true;
+  try {
+    await leadsApi.delete(route.params.id, reason);
+    store.addToast(`"${lead.value.business_name}" archived`, 'success');
+    router.push('/leads');
+  } catch (err) {
+    store.addToast(err.response?.data?.error || 'Failed to archive lead', 'error');
+    showDeleteLead.value = false;
+  } finally {
+    deletingLead.value = false;
+  }
+}
+
+function promptDeleteCall(call) {
+  callToDelete.value = call;
+  showDeleteCall.value = true;
+}
+
+async function deleteCall(reason) {
+  if (!callToDelete.value) return;
+  deletingCall.value = true;
+  try {
+    await leadsApi.deleteCall(route.params.id, callToDelete.value.id, reason);
+    store.addToast('Call log deleted', 'success');
+    showDeleteCall.value = false;
+    callToDelete.value = null;
+    loadCalls();
+    loadActivities();
+  } catch (err) {
+    store.addToast(err.response?.data?.error || 'Failed to delete call log', 'error');
+    showDeleteCall.value = false;
+  } finally {
+    deletingCall.value = false;
+  }
+}
+
+async function deleteReport(reason) {
+  deletingReport.value = true;
+  try {
+    await leadsApi.deleteReport(route.params.id, reason);
+    store.addToast('Research report deleted', 'success');
+    showDeleteReport.value = false;
+    await loadLead();
+    loadActivities();
+  } catch (err) {
+    store.addToast(err.response?.data?.error || 'Failed to delete report', 'error');
+    showDeleteReport.value = false;
+  } finally {
+    deletingReport.value = false;
+  }
+}
+
+// ─── Computed / formatters ────────────────────────
+
 const parsedFindings = computed(() => {
   if (!lead.value?.report?.key_findings) return [];
   try { return JSON.parse(lead.value.report.key_findings); } catch { return []; }
@@ -549,6 +697,7 @@ onMounted(() => {
 
 /* Research card */
 .research-card .card-body { padding: 16px 20px; }
+.header-actions { display: flex; align-items: center; gap: 6px; }
 .readiness-section { margin-bottom: 14px; }
 .readiness-label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
 .readiness-value { color: var(--accent-blue); }
@@ -566,8 +715,14 @@ onMounted(() => {
 .field-select { flex: 1; padding: 5px 8px; font-size: 13px; }
 .field-value { font-size: 13px; }
 
+/* Danger zone */
+.danger-zone {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
 /* Call card */
-.header-actions { display: flex; align-items: center; gap: 8px; }
 .calls-list { display: flex; flex-direction: column; gap: 10px; }
 .call-item { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 10px 12px; border: 1px solid var(--border-subtle); }
 .call-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
@@ -575,6 +730,16 @@ onMounted(() => {
 .call-date, .call-duration { font-size: 11px; }
 .call-notes { font-size: 12px; line-height: 1.5; margin-top: 4px; }
 .call-followup { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--warning); margin-top: 4px; }
+
+.call-delete-btn {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--transition);
+  color: var(--text-muted);
+  padding: 3px 4px;
+}
+.call-item:hover .call-delete-btn { opacity: 1; }
+.call-delete-btn:hover { color: var(--danger) !important; background: var(--danger-dim) !important; }
 
 /* Modal form */
 .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }

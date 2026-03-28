@@ -11,6 +11,8 @@ router.get('/followups', (req, res) => {
     WHERE cl.follow_up_needed = 1
       AND cl.follow_up_date IS NOT NULL
       AND cl.follow_up_date >= date('now')
+      AND cl.deleted_at IS NULL
+      AND l.deleted_at IS NULL
     ORDER BY cl.follow_up_date ASC
     LIMIT 50
   `).all();
