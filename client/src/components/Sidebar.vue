@@ -43,6 +43,13 @@
         <span class="nav-badge followup-badge" v-if="followupCount > 0">{{ followupCount }}</span>
       </router-link>
 
+      <router-link to="/activity" class="nav-item" active-class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span>All Activity</span>
+      </router-link>
+
       <router-link to="/archives" class="nav-item" active-class="active">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M21 8v13H3V8"/><rect x="1" y="3" width="22" height="5" rx="1"/>
@@ -259,5 +266,29 @@ onMounted(async () => {
 .followup-badge {
   background: var(--warning-dim);
   color: var(--warning);
+}
+
+/* Collapsed state — hide all text labels completely */
+.sidebar.collapsed .logo-text,
+.sidebar.collapsed .logo-sub,
+.sidebar.collapsed .nav-item > span,
+.sidebar.collapsed .user-info,
+.sidebar.collapsed .logout-btn {
+  display: none;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px;
+}
+
+.sidebar.collapsed .sidebar-logo {
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.sidebar.collapsed .sidebar-user {
+  justify-content: center;
+  padding: 12px 0;
 }
 </style>

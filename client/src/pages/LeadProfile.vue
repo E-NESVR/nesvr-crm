@@ -46,9 +46,9 @@
               <div class="info-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
               <span class="info-value">{{ [lead.address, lead.city, lead.state].filter(Boolean).join(', ') }}</span>
             </div>
-            <div class="info-row" v-if="lead.estimated_revenue">
+            <div class="info-row">
               <div class="info-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div>
-              <span class="info-value">{{ lead.estimated_revenue }}</span>
+              <span class="info-value" :class="{ 'text-muted': !lead.estimated_revenue }">{{ lead.estimated_revenue || 'Not found' }}</span>
             </div>
             <div class="info-row" v-if="lead.linkedin">
               <div class="info-icon"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2z"/><circle cx="4" cy="4" r="2"/></svg></div>
@@ -87,6 +87,10 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <h3>No research yet</h3>
               <p>Click "Run Research" to generate an AI-powered sales intelligence report.</p>
+              <div class="deal-range-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                Est. Deal: Run research to estimate
+              </div>
             </div>
             <div v-else class="research-data">
               <div class="readiness-section">
@@ -99,8 +103,26 @@
                 </div>
               </div>
 
+              <!-- Deal size estimate -->
+              <div class="deal-range-row" v-if="reportContent.estimated_deal_size">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                <span>Est. Deal: <strong>{{ reportContent.estimated_deal_size }}</strong></span>
+              </div>
+
               <div class="research-summary" v-if="lead.report.summary">
                 {{ lead.report.summary }}
+              </div>
+
+              <!-- Business-specific findings -->
+              <div class="research-field" v-if="reportContent.business_specific_findings">
+                <div class="findings-label">Business-Specific Findings</div>
+                <p class="findings-text">{{ reportContent.business_specific_findings }}</p>
+              </div>
+
+              <!-- Pain signals -->
+              <div class="research-field" v-if="reportContent.specific_pain_signals">
+                <div class="findings-label">Phone Pain Signals</div>
+                <p class="findings-text pain-signal">{{ reportContent.specific_pain_signals }}</p>
               </div>
 
               <div class="research-findings" v-if="parsedFindings.length">
@@ -678,6 +700,11 @@ const parsedFindings = computed(() => {
   try { return JSON.parse(lead.value.report.key_findings); } catch { return []; }
 });
 
+const reportContent = computed(() => {
+  if (!lead.value?.report?.content_json) return {};
+  try { return JSON.parse(lead.value.report.content_json); } catch { return {}; }
+});
+
 function scoreClass(s) {
   if (s >= 70) return 'high';
   if (s >= 40) return 'mid';
@@ -771,6 +798,29 @@ onMounted(() => {
 .findings-list li { font-size: 13px; color: var(--text-secondary); padding-left: 14px; position: relative; line-height: 1.5; }
 .findings-list li::before { content: '•'; position: absolute; left: 0; color: var(--accent-blue); }
 .research-approach { margin-top: 12px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+.deal-range-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  margin-bottom: 10px;
+}
+.deal-range-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 10px;
+}
+.research-field { margin-top: 10px; }
+.findings-text { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-top: 4px; }
+.pain-signal { color: var(--warning); }
 
 /* Info card */
 .info-fields { display: flex; flex-direction: column; gap: 10px; }

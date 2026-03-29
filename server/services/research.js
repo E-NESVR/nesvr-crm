@@ -2,27 +2,36 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { getDB, calculateLeadScore } = require('../db');
 const { enrichLead } = require('./enrichment');
 
-const SYSTEM_PROMPT = `You are a sales intelligence analyst for NESVR, a company that sells AI phone receptionist services to local businesses. Your job is to analyze a business and produce a structured sales intelligence report.
+const SYSTEM_PROMPT = `You are a sales intelligence analyst for NESVR, a company that sells AI phone receptionist services to local businesses in Jacksonville, FL. Your job is to analyze a SPECIFIC business and produce a structured, highly personalized sales intelligence report.
 
-The report must be formatted professionally — like a business brief, not an essay. Use section headers, bullet points for lists, and keep prose tight and scannable. No walls of text.
+CRITICAL RULES:
+- Reference the specific business by name throughout the entire report — never say "HVAC companies" when you can say "A/C Masters Enterprises"
+- Use specific details found in the search results and website content — reviews, ratings, staff mentions, hours, services
+- If you found reviews mentioning hold times, no answer, or phone issues — quote them or reference them specifically
+- The recommended_approach and call_script_starter MUST mention the business by name and use specific findings, not generic category pitches
+- For estimated_revenue: use business type, category, apparent size, staff signals, and local market data to make an educated estimate
 
-Focus heavily on: why this specific type of business struggles with phone handling, what their specific pain points are, and exactly how to approach them.
-
-Output valid JSON matching this schema:
+Output valid JSON matching this schema exactly:
 {
-  "summary": "2-3 sentence executive summary",
+  "summary": "2-3 sentence executive summary referencing this specific business by name",
   "readiness_score": 0-100,
+  "estimated_revenue": "Estimated annual revenue, e.g. '$500K - $1.2M' based on business type, apparent size, and market norms. Never leave blank — always make an educated estimate.",
+  "estimated_deal_size": "Monthly recurring revenue estimate for NESVR service, e.g. '$299 - $499/mo' based on call volume implied by business type and size",
   "business_overview": {
-    "web_presence_quality": "string",
-    "reputation_summary": "string"
+    "web_presence_quality": "Specific assessment of THIS business's web presence based on what was found",
+    "reputation_summary": "Specific review/rating summary for THIS business if found, or assessment based on web presence"
   },
-  "phone_pain_points": ["pain point 1", "pain point 2", "pain point 3"],
-  "key_findings": ["finding 1", "finding 2", "finding 3"],
-  "recommended_approach": "string - specific pitch angle for this business",
-  "call_script_starter": "string - 3-4 sentence cold call opener",
-  "email_subject": "string",
-  "email_body": "string - 3-4 sentence cold email",
-  "sources_used": ["url1", "url2"]
+  "business_specific_findings": "2-3 sentences about what was found specifically about THIS business — reviews, news, web presence quality, staff size signals, years in business, etc.",
+  "local_context": "1-2 sentences about the Jacksonville FL market context for this specific category and how it affects this business",
+  "specific_pain_signals": "Any specific signals found that THIS business struggles with phone handling — e.g. reviews mentioning hold times, no answer, slow response, or any indicators of high call volume without adequate staffing. If none found, note what the typical pain is for this category.",
+  "competition_context": "Brief note on local competition in their category in Jacksonville and how that creates urgency for lead handling",
+  "phone_pain_points": ["3-5 specific pain points for THIS business based on their category, size, and any signals found"],
+  "key_findings": ["3-5 specific findings about THIS business — not generic category facts"],
+  "recommended_approach": "Specific pitch angle referencing this business by name and using specific details found. Not a generic category pitch.",
+  "call_script_starter": "3-4 sentence cold call opener that mentions the business by name and references a specific finding or pain signal",
+  "email_subject": "Personalized subject line mentioning the business name",
+  "email_body": "3-4 sentence cold email referencing this specific business and any specific finding",
+  "sources_searched": ["list every URL and search query used during research"]
 }
 
 Return ONLY the JSON object. No preamble, no markdown fences.`;
@@ -34,14 +43,13 @@ async function runResearch(leadId) {
 
   // Check if Anthropic key is configured
   if (!process.env.ANTHROPIC_API_KEY) {
-    // Still run the report with a placeholder
     const fallback = generateFallbackReport(lead);
     saveReport(db, leadId, fallback, []);
     return fallback;
   }
 
   // Mark report as running
-  const existingReport = db.prepare('SELECT id FROM research_reports WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1').get(leadId);
+  const existingReport = db.prepare('SELECT id FROM research_reports WHERE lead_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1').get(leadId);
   let reportId;
   if (existingReport) {
     db.prepare("UPDATE research_reports SET status='running' WHERE id=?").run(existingReport.id);
@@ -52,33 +60,46 @@ async function runResearch(leadId) {
   }
 
   try {
-    // Step 1: Enrich with Google Search
+    // Step 1: Enrich with Google Search (multiple queries + homepage fetch)
     const enrichment = await enrichLead(lead);
 
-    // Update website if discovered
+    // Update website if discovered during enrichment
     if (enrichment.website && !lead.website) {
       db.prepare("UPDATE leads SET website=?, updated_at=? WHERE id=?").run(
         enrichment.website, new Date().toISOString(), leadId
       );
+      lead.website = enrichment.website;
     }
 
-    // Step 2: Call Claude
+    // Step 2: Call Claude with all enrichment context
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+    const websiteDisplay = lead.website || enrichment.website || 'Not found';
+    const homepageSection = enrichment.homepageText
+      ? `\nWebsite Homepage Content (first 2000 chars):\n${enrichment.homepageText}`
+      : '';
 
     const userMessage = `Business Name: ${lead.business_name}
 Category: ${lead.category || 'Unknown'}
 Location: ${lead.city || 'Jacksonville'}, FL
-Phone: ${lead.phone || 'Unknown'}
-Website: ${lead.website || enrichment.website || 'Unknown'}
+Phone: ${lead.phone || 'Not available'}
+Email: ${lead.email || 'Not available'}
+Website: ${websiteDisplay}
+Address: ${lead.address || 'Not available'}
 Priority Tier: ${lead.priority_tier || 'Unknown'}
-Search Results Found:
-${enrichment.snippets || '(No search results — API key not configured)'}
+Contact Quality: ${lead.contact_quality || 'Unknown'}
 
-Generate the sales intelligence report.`;
+Search Queries Used: ${enrichment.queriesUsed ? enrichment.queriesUsed.join(' | ') : 'N/A'}
+
+Web Search Results:
+${enrichment.snippets || '(No search results — Google Search API not configured)'}
+${homepageSection}
+
+Generate a highly personalized sales intelligence report for ${lead.business_name} specifically. Reference this business by name throughout.`;
 
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
+      max_tokens: 2000,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
     });
@@ -87,28 +108,48 @@ Generate the sales intelligence report.`;
     let reportData;
 
     try {
-      // Strip markdown fences if present
       const cleaned = rawText.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
       reportData = JSON.parse(cleaned);
     } catch {
       throw new Error('AI returned invalid JSON: ' + rawText.substring(0, 200));
     }
 
-    // Add sources from enrichment
+    // Merge sources_searched from enrichment queries + any the AI listed
+    const allSources = [
+      ...(enrichment.queriesUsed || []),
+      ...(enrichment.sources || []),
+      ...(reportData.sources_used || []),
+    ].filter(Boolean);
+    reportData.sources_searched = allSources;
     if (!reportData.sources_used || reportData.sources_used.length === 0) {
-      reportData.sources_used = enrichment.sources;
+      reportData.sources_used = enrichment.sources || [];
     }
 
     // Step 3: Save report
     saveReport(db, leadId, reportData, enrichment.sources, reportId);
 
-    // Step 4: Update lead score + log activity atomically
-    const updatedLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
-    const newScore = calculateLeadScore(updatedLead);
-    db.transaction(() => {
-      db.prepare("UPDATE leads SET lead_score=?, lead_status=CASE WHEN lead_status='new' THEN 'researched' ELSE lead_status END, updated_at=? WHERE id=?").run(
-        newScore, new Date().toISOString(), leadId
+    // Step 4: Save estimated_revenue to lead if found and not already set
+    if (reportData.estimated_revenue && reportData.estimated_revenue !== 'Unknown') {
+      db.prepare("UPDATE leads SET estimated_revenue=?, updated_at=? WHERE id=? AND (estimated_revenue IS NULL OR estimated_revenue='')").run(
+        reportData.estimated_revenue, new Date().toISOString(), leadId
       );
+    }
+
+    // Step 5: Recalculate lead score with research bonus
+    const updatedLead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId);
+    const baseScore = calculateLeadScore(updatedLead);
+    let bonus = 15; // has complete research report
+    if (reportData.readiness_score) {
+      bonus += Math.round(reportData.readiness_score * 0.10);
+    }
+    const newScore = Math.min(baseScore + bonus, 100);
+
+    db.transaction(() => {
+      db.prepare(`UPDATE leads SET
+        lead_score=?,
+        lead_status=CASE WHEN lead_status='new' THEN 'researched' ELSE lead_status END,
+        updated_at=?
+        WHERE id=?`).run(newScore, new Date().toISOString(), leadId);
       db.prepare("INSERT INTO activities (lead_id, user, activity_type, description) VALUES (?, 'system', 'research_completed', ?)").run(
         leadId, `Research report generated (Readiness Score: ${reportData.readiness_score}/100)`
       );
@@ -168,13 +209,20 @@ function saveReport(db, leadId, reportData, sources, reportId) {
 
 function generateFallbackReport(lead) {
   const category = lead.category || 'business';
+  const name = lead.business_name;
   return {
-    summary: `${lead.business_name} is a ${category} in Jacksonville, FL. Configure your Anthropic API key to generate AI-powered research reports.`,
+    summary: `${name} is a ${category} in Jacksonville, FL. Configure your Anthropic API key to generate AI-powered research reports.`,
     readiness_score: lead.lead_score || 50,
+    estimated_revenue: 'Configure API keys to estimate',
+    estimated_deal_size: 'Configure API keys to estimate',
     business_overview: {
       web_presence_quality: lead.website ? 'Has website' : 'No website found',
       reputation_summary: 'Requires Google Search API key to assess',
     },
+    business_specific_findings: `Limited data available for ${name} without API keys configured.`,
+    local_context: `Jacksonville FL has a competitive ${category} market. AI receptionist services can differentiate businesses that handle calls reliably.`,
+    specific_pain_signals: `${category} businesses typically miss calls during peak hours and after hours.`,
+    competition_context: `Local competition in Jacksonville's ${category} sector means fast phone response is critical for capturing leads.`,
     phone_pain_points: [
       `${category} businesses typically miss calls during peak hours`,
       'Manual scheduling wastes staff time',
@@ -185,11 +233,12 @@ function generateFallbackReport(lead) {
       `Contact Quality: ${lead.contact_quality || 'Unknown'}`,
       `Priority: ${lead.priority_tier || 'Unknown'}`,
     ],
-    recommended_approach: `Lead with the missed-call pain point. Ask how many calls they miss per week. Offer a free trial.`,
-    call_script_starter: `Hi, is this ${lead.business_name}? Great — I'm calling from NESVR. We help ${category} businesses in Jacksonville stop losing customers to unanswered phones. Do you have 60 seconds?`,
-    email_subject: `Stop missing calls — ${lead.business_name}`,
-    email_body: `Hi there,\n\nI help ${category} businesses in Jacksonville never miss another customer call with an AI receptionist that handles calls 24/7.\n\nWould you be open to a quick 10-minute demo this week?\n\n— NESVR Team`,
+    recommended_approach: `Lead with the missed-call pain point for ${name}. Ask how many calls they miss per week. Offer a free trial.`,
+    call_script_starter: `Hi, is this ${name}? Great — I'm calling from NESVR. We help ${category} businesses in Jacksonville stop losing customers to unanswered phones. Do you have 60 seconds?`,
+    email_subject: `Stop missing calls — ${name}`,
+    email_body: `Hi there,\n\nI help ${category} businesses like ${name} in Jacksonville never miss another customer call with an AI receptionist that handles calls 24/7.\n\nWould you be open to a quick 10-minute demo this week?\n\n— NESVR Team`,
     sources_used: [],
+    sources_searched: [],
   };
 }
 
@@ -226,7 +275,6 @@ async function runQueue(leadIds) {
           queueState.errors.push({ id, error: err.message });
           queueState.completed++;
         }
-        // 2 second delay between requests
         if (queueState.queue.indexOf(id) < queueState.queue.length - 1) {
           await new Promise(r => setTimeout(r, 2000));
         }

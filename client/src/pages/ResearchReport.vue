@@ -43,6 +43,21 @@
           <p class="section-text">{{ reportData.summary }}</p>
         </div>
 
+        <!-- Revenue & Deal Estimate -->
+        <div class="report-section" v-if="reportData.estimated_revenue || reportData.estimated_deal_size">
+          <div class="section-header">━━━ REVENUE & DEAL ESTIMATE ━━━</div>
+          <div class="overview-grid">
+            <div class="overview-item" v-if="reportData.estimated_revenue">
+              <span class="overview-label">Est. Annual Revenue</span>
+              <span class="overview-value">{{ reportData.estimated_revenue }}</span>
+            </div>
+            <div class="overview-item" v-if="reportData.estimated_deal_size">
+              <span class="overview-label">Est. Deal Size (NESVR)</span>
+              <span class="overview-value">{{ reportData.estimated_deal_size }}</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Business Overview -->
         <div class="report-section" v-if="reportData.business_overview">
           <div class="section-header">━━━ BUSINESS OVERVIEW ━━━</div>
@@ -54,6 +69,33 @@
             <div class="overview-item" v-if="reportData.business_overview.reputation_summary">
               <span class="overview-label">Online Reputation</span>
               <span class="overview-value">{{ reportData.business_overview.reputation_summary }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Business-Specific Findings -->
+        <div class="report-section" v-if="reportData.business_specific_findings">
+          <div class="section-header">━━━ BUSINESS-SPECIFIC FINDINGS ━━━</div>
+          <p class="section-text">{{ reportData.business_specific_findings }}</p>
+        </div>
+
+        <!-- Pain Signals -->
+        <div class="report-section" v-if="reportData.specific_pain_signals">
+          <div class="section-header">━━━ SPECIFIC PHONE PAIN SIGNALS ━━━</div>
+          <p class="section-text pain-text">{{ reportData.specific_pain_signals }}</p>
+        </div>
+
+        <!-- Local & Competition Context -->
+        <div class="report-section" v-if="reportData.local_context || reportData.competition_context">
+          <div class="section-header">━━━ MARKET CONTEXT ━━━</div>
+          <div class="overview-grid">
+            <div class="overview-item" v-if="reportData.local_context">
+              <span class="overview-label">Jacksonville Market</span>
+              <span class="overview-value">{{ reportData.local_context }}</span>
+            </div>
+            <div class="overview-item" v-if="reportData.competition_context">
+              <span class="overview-label">Competition</span>
+              <span class="overview-value">{{ reportData.competition_context }}</span>
             </div>
           </div>
         </div>
@@ -101,8 +143,19 @@
           </div>
         </div>
 
+        <!-- Sources Searched -->
+        <div class="report-section" v-if="parsedSourcesSearched.length">
+          <div class="section-header">━━━ SOURCES & QUERIES SEARCHED ━━━</div>
+          <ul class="sources-list">
+            <li v-for="(s, i) in parsedSourcesSearched" :key="i">
+              <span v-if="s.startsWith('http')"><a :href="s" target="_blank" rel="noopener">{{ s }}</a></span>
+              <span v-else class="query-item">🔍 {{ s }}</span>
+            </li>
+          </ul>
+        </div>
+
         <!-- Sources -->
-        <div class="report-section" v-if="parsedSources.length">
+        <div class="report-section" v-else-if="parsedSources.length">
           <div class="section-header">━━━ SOURCES ━━━</div>
           <ul class="sources-list">
             <li v-for="(s, i) in parsedSources" :key="i">
@@ -163,7 +216,14 @@ const parsedSources = computed(() => {
   const sources = reportData.value?.sources_used;
   if (!sources) return [];
   if (typeof sources === 'string') { try { return JSON.parse(sources); } catch { return []; } }
-  return sources;
+  return Array.isArray(sources) ? sources : [];
+});
+
+const parsedSourcesSearched = computed(() => {
+  const sources = reportData.value?.sources_searched;
+  if (!sources) return [];
+  if (typeof sources === 'string') { try { return JSON.parse(sources); } catch { return []; } }
+  return Array.isArray(sources) ? sources : [];
 });
 
 function formatDate(d) {
@@ -254,4 +314,6 @@ onMounted(load);
 .sources-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .sources-list a { font-size: 12px; color: var(--accent-blue); word-break: break-all; }
 .sources-list a:hover { text-decoration: underline; }
+.query-item { font-size: 12px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+.pain-text { color: var(--warning); }
 </style>

@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../db');
+const path = require('path');
+const fs = require('fs');
 
 router.get('/metrics', (req, res) => {
   const db = getDB();
@@ -9,6 +11,7 @@ router.get('/metrics', (req, res) => {
   const contacted = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE lead_status != 'new' AND deleted_at IS NULL").get().cnt;
   const pipeline = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE lead_status = 'demo_booked' AND deleted_at IS NULL").get().cnt;
   const closed = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE lead_status = 'closed_won' AND deleted_at IS NULL").get().cnt;
+  const cold = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE lead_status = 'cold' AND deleted_at IS NULL").get().cnt;
   const researched = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE lead_status = 'researched' AND deleted_at IS NULL").get().cnt;
 
   const byCategory = db.prepare(`
@@ -61,6 +64,7 @@ router.get('/metrics', (req, res) => {
     contacted,
     pipeline,
     closed,
+    cold,
     researched,
     avgScore: Math.round(avgScore || 0),
     pipelineValue,
@@ -71,6 +75,33 @@ router.get('/metrics', (req, res) => {
     byTier,
     recentActivity,
     monthlyActivity,
+  });
+});
+
+// GET /api/dashboard/status — settings stats: DB counts + API key status
+router.get('/status', (req, res) => {
+  const db = getDB();
+
+  const leads = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE deleted_at IS NULL").get().cnt;
+  const reports = db.prepare("SELECT COUNT(*) as cnt FROM research_reports WHERE deleted_at IS NULL").get().cnt;
+  const calls = db.prepare("SELECT COUNT(*) as cnt FROM call_logs WHERE deleted_at IS NULL").get().cnt;
+  const activitiesCount = db.prepare("SELECT COUNT(*) as cnt FROM activities").get().cnt;
+  const archived = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE deleted_at IS NOT NULL").get().cnt;
+
+  // DB file size
+  let dbSizeBytes = 0;
+  try {
+    const dbPath = path.join(__dirname, '..', '..', 'nesvr.db');
+    dbSizeBytes = fs.statSync(dbPath).size;
+  } catch {}
+  const dbSizeMB = (dbSizeBytes / (1024 * 1024)).toFixed(2);
+
+  res.json({
+    db: { leads, reports, calls, activities: activitiesCount, archived, sizeMB: dbSizeMB },
+    api: {
+      anthropic: !!process.env.ANTHROPIC_API_KEY,
+      google: !!(process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_ENGINE_ID),
+    },
   });
 });
 

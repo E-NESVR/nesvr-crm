@@ -1,5 +1,24 @@
 const https = require('https');
 
+// Domains that are directories/aggregators — not the business's own website
+const DIRECTORY_DOMAINS = [
+  'yelp.com', 'google.com', 'facebook.com', 'yellowpages.com',
+  'angieslist.com', 'thumbtack.com', 'bbb.org', 'houzz.com',
+  'homeadvisor.com', 'birdeye.com', 'nextdoor.com', 'manta.com',
+  'mapquest.com', 'superpages.com', 'citysearch.com', 'foursquare.com',
+  'tripadvisor.com', 'linkedin.com', 'twitter.com', 'instagram.com',
+  'bing.com', 'yahoo.com', 'wikipedia.org', 'amazon.com',
+];
+
+function isDirectoryUrl(url) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return DIRECTORY_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
+  } catch {
+    return false;
+  }
+}
+
 async function googleSearch(query) {
   const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
   const cx = process.env.GOOGLE_SEARCH_ENGINE_ID;
@@ -25,6 +44,8 @@ async function googleSearch(query) {
             title: item.title,
             link: item.link,
             snippet: item.snippet,
+            // displayLink may be the canonical business website
+            displayLink: item.displayLink,
           }));
           resolve({ results, skipped: false });
         } catch {
@@ -41,36 +62,110 @@ async function googleSearch(query) {
   });
 }
 
+// Fetch a URL and return the first N characters of its text body (best-effort)
+async function fetchPageText(url, maxChars = 2000) {
+  return new Promise((resolve) => {
+    try {
+      const parsedUrl = new URL(url);
+      const lib = parsedUrl.protocol === 'https:' ? require('https') : require('http');
+      const req = lib.get(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NESVR-CRM-Enrichment/1.0)' },
+        timeout: 8000,
+      }, (res) => {
+        // Follow one redirect
+        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+          resolve(fetchPageText(res.headers.location, maxChars));
+          return;
+        }
+        let body = '';
+        res.on('data', (chunk) => {
+          body += chunk;
+          if (body.length > maxChars * 4) res.destroy();
+        });
+        res.on('end', () => {
+          // Strip HTML tags, collapse whitespace
+          const text = body
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .substring(0, maxChars);
+          resolve(text || null);
+        });
+        res.on('error', () => resolve(null));
+      });
+      req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+      req.on('error', () => resolve(null));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 async function enrichLead(lead) {
   const name = lead.business_name;
   const city = lead.city || 'Jacksonville';
   const cat = lead.category || '';
+  const phone = lead.phone || '';
 
-  const [general, reviews] = await Promise.all([
+  // Run multiple searches in parallel for richer context
+  const [general, reviews, directories, news, phoneSearch] = await Promise.all([
     googleSearch(`"${name}" ${city} ${cat}`),
-    googleSearch(`"${name}" reviews`),
+    googleSearch(`"${name}" reviews Jacksonville`),
+    googleSearch(`"${name}" site:yelp.com OR site:bbb.org OR site:google.com/maps`),
+    googleSearch(`"${name}" news OR announcement OR award Jacksonville`),
+    phone ? googleSearch(`"${phone}" ${city}`) : Promise.resolve({ results: [], skipped: false }),
   ]);
 
-  const allSnippets = [
-    ...general.results.map(r => `[${r.title}] ${r.snippet} (${r.link})`),
-    ...reviews.results.map(r => `[${r.title}] ${r.snippet} (${r.link})`),
-  ].join('\n');
+  const allResults = [
+    ...general.results,
+    ...reviews.results,
+    ...directories.results,
+    ...news.results,
+    ...phoneSearch.results,
+  ];
 
-  const sources = [
-    ...general.results.map(r => r.link),
-    ...reviews.results.map(r => r.link),
-  ].filter(Boolean);
+  const allSnippets = allResults
+    .map(r => `[${r.title}] ${r.snippet} (${r.link})`)
+    .join('\n');
 
-  // Try to extract website from results
-  let website = lead.website;
-  if (!website && general.results.length > 0) {
-    const first = general.results[0];
-    if (first.link && !first.link.includes('yelp.com') && !first.link.includes('google.com')) {
-      website = first.link;
+  const sources = allResults.map(r => r.link).filter(Boolean);
+
+  // Extract business website — loop through all general results, skip directories
+  let website = lead.website || null;
+  if (!website) {
+    for (const result of general.results) {
+      if (result.link && !isDirectoryUrl(result.link)) {
+        website = result.link;
+        break;
+      }
     }
   }
 
-  return { snippets: allSnippets, sources, website, skipped: general.skipped };
+  // Fetch homepage content if we found (or already have) a website
+  let homepageText = null;
+  const websiteToFetch = website || lead.website;
+  if (websiteToFetch) {
+    homepageText = await fetchPageText(websiteToFetch);
+  }
+
+  const queriesUsed = [
+    `"${name}" ${city} ${cat}`,
+    `"${name}" reviews Jacksonville`,
+    `"${name}" site:yelp.com OR site:bbb.org OR site:google.com/maps`,
+    `"${name}" news OR announcement OR award Jacksonville`,
+    phone ? `"${phone}" ${city}` : null,
+  ].filter(Boolean);
+
+  return {
+    snippets: allSnippets,
+    sources,
+    website,
+    homepageText,
+    queriesUsed,
+    skipped: general.skipped,
+  };
 }
 
 module.exports = { enrichLead, googleSearch };

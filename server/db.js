@@ -19,13 +19,11 @@ function getDB() {
 
 function calculateLeadScore(lead) {
   let score = 0;
-  if (lead.phone) score += 20;
+  if (lead.phone) score += 15;
   if (lead.email) score += 20;
-  if (lead.website) score += 15;
-  if (lead.address) score += 15;
-  if (lead.business_name) score += 10;
-  if (lead.category) score += 10;
-  if (lead.contact_quality === 'Complete') score += 10;
+  if (lead.website) score += 20;
+  if (lead.address) score += 10;
+  if (lead.estimated_revenue) score += 10;
   return Math.min(score, 100);
 }
 
@@ -64,6 +62,10 @@ function initDB() {
       lead_status TEXT DEFAULT 'new',
       lead_type TEXT DEFAULT 'cold',
       notes TEXT,
+      deal_value INTEGER DEFAULT 0,
+      deleted_at DATETIME,
+      deleted_by TEXT,
+      delete_reason TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -79,7 +81,10 @@ function initDB() {
       recommended_approach TEXT,
       phone_pain_points TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      enrichment_sources TEXT
+      enrichment_sources TEXT,
+      deleted_at DATETIME,
+      deleted_by TEXT,
+      delete_reason TEXT
     );
 
     CREATE TABLE IF NOT EXISTS call_logs (
@@ -93,7 +98,10 @@ function initDB() {
       follow_up_date DATE,
       recording_link TEXT,
       notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      deleted_at DATETIME,
+      deleted_by TEXT,
+      delete_reason TEXT
     );
 
     CREATE TABLE IF NOT EXISTS activities (
@@ -121,7 +129,14 @@ function initDB() {
       metric_value TEXT,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+  `);
 
+  // Migrations: add columns to existing tables if they don't exist yet
+  // (no-ops on fresh databases since columns are in CREATE TABLE above)
+  runMigrations(database);
+
+  // Create indexes after migrations so all columns are guaranteed to exist
+  database.exec(`
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(lead_status);
     CREATE INDEX IF NOT EXISTS idx_leads_category ON leads(category);
     CREATE INDEX IF NOT EXISTS idx_leads_tier ON leads(priority_tier);
@@ -135,9 +150,6 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_research_lead ON research_reports(lead_id);
     CREATE INDEX IF NOT EXISTS idx_research_lead_date ON research_reports(lead_id, created_at);
   `);
-
-  // Migrations: add soft-delete columns if they don't exist yet
-  runMigrations(database);
 
   // Import CSV if leads table is empty
   const count = database.prepare('SELECT COUNT(*) as cnt FROM leads WHERE deleted_at IS NULL').get();

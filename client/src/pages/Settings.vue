@@ -84,7 +84,10 @@
         <div class="card-body settings-body">
           <div class="setting-row">
             <span class="setting-label">Database File</span>
-            <code class="code-badge">nesvr.db</code>
+            <div style="display:flex;align-items:center;gap:8px">
+              <code class="code-badge">nesvr.db</code>
+              <span class="font-semibold text-muted text-sm" v-if="dbStats.sizeMB !== '—'">{{ dbStats.sizeMB }} MB</span>
+            </div>
           </div>
           <div class="setting-row">
             <span class="setting-label">Total Leads</span>
@@ -127,26 +130,23 @@ const users = [
 ];
 
 const apiStatus = ref({ anthropic: false, google: false });
-const dbStats = ref({ leads: '—', reports: '—', calls: '—', activities: '—' });
+const dbStats = ref({ leads: '—', reports: '—', calls: '—', activities: '—', sizeMB: '—' });
 
 async function loadStats() {
   try {
-    const [metricsRes, statusRes] = await Promise.all([
-      api.get('/dashboard/metrics'),
-      api.get('/auth/me').catch(() => null),
-    ]);
+    const res = await api.get('/dashboard/status');
+    const { db, api: apiKeys } = res.data;
     dbStats.value = {
-      leads: metricsRes.data.total,
-      reports: '(check DB)',
-      calls: '(check DB)',
-      activities: '(check DB)',
+      leads: db.leads,
+      reports: db.reports,
+      calls: db.calls,
+      activities: db.activities,
+      sizeMB: db.sizeMB,
     };
-  } catch {}
-
-  try {
-    const res = await api.get('/research/queue/status');
-    // Use queue status as a proxy to check if server is alive
-    // Actual API key status would need a dedicated endpoint
+    apiStatus.value = {
+      anthropic: apiKeys.anthropic,
+      google: apiKeys.google,
+    };
   } catch {}
 }
 

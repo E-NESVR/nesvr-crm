@@ -69,6 +69,7 @@ export const dashboard = {
 // ─── Activities ───────────────────────────────────
 export const activities = {
   recent: (limit) => api.get('/activities/recent', { params: { limit } }),
+  all: (params) => api.get('/activities/all', { params }),
 };
 
 // ─── Communications ───────────────────────────────

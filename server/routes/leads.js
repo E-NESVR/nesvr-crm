@@ -98,14 +98,18 @@ router.get('/', (req, res) => {
 
 // GET /api/leads/archived
 router.get('/archived', (req, res) => {
-  const db = getDB();
-  const leads = db.prepare(`
-    SELECT l.*, l.deleted_by, l.delete_reason, l.deleted_at
-    FROM leads l
-    WHERE l.deleted_at IS NOT NULL
-    ORDER BY l.deleted_at DESC
-  `).all();
-  res.json(leads);
+  try {
+    const db = getDB();
+    const leads = db.prepare(`
+      SELECT * FROM leads
+      WHERE deleted_at IS NOT NULL
+      ORDER BY deleted_at DESC
+    `).all();
+    res.json(leads);
+  } catch (err) {
+    console.error('[leads] archived error:', err.message);
+    res.json([]);
+  }
 });
 
 // POST /api/leads/:id/restore
